@@ -5,10 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
@@ -20,13 +17,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.constraintlayout.widget.ConstraintLayout
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.request.RequestOptions
 import com.developerlife.com.ui.theme.DeveloperLifeTheme
 import com.google.accompanist.pager.*
+import com.google.gson.Gson
 import com.skydoves.landscapist.glide.GlideImage
 import kotlinx.coroutines.launch
 import okhttp3.*
 import okio.IOException
 import org.json.JSONObject
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.NonDisposableHandle.parent
 
 
 class MainActivity : ComponentActivity() {
@@ -65,7 +69,7 @@ class MainActivity : ComponentActivity() {
 @ExperimentalPagerApi
 @Composable
 fun DefaultPreview() {
-    val tabs = listOf(TabItem.Latest, TabItem.Top, TabItem.Hot)
+    var tabs = listOf(TabItem.Latest, TabItem.Top, TabItem.Hot)
     val pagerState = rememberPagerState(pageCount = tabs.size)
 
     DeveloperLifeTheme {
@@ -76,7 +80,7 @@ fun DefaultPreview() {
                 contentColor = Color.Black,
                 elevation = 2.dp
             )
-            Tabs(tabs = tabs, pagerState = pagerState)
+            Tabs(tabs = tabs, pagerState = pagerState )
             TabsContent(tabs = tabs, pagerState = pagerState)
         }
     }
@@ -124,21 +128,31 @@ fun TabsContent(tabs: List<TabItem>, pagerState: PagerState) {
 fun loadImage(contentUrl: String) {
     GlideImage(
         imageModel = contentUrl,
-        // Crop, Fit, Inside, FillHeight, FillWidth, None
-        contentScale = ContentScale.Crop,
-        // shows an error ImageBitmap when the request failed.
-        error = ImageBitmap.imageResource(R.drawable.error)
+        requestOptions = RequestOptions()
+            .override(1024, 1024)
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .centerCrop(),
+        loading = {
+            Column (
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box (
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    CircularProgressIndicator()
+                }
+
+            }
+        },
+        failure = {
+            Text(text = "Image request failed")
+        }
     )
 }
 
-
-@ExperimentalAnimationApi
-@Composable
-fun Post(tab: TabItem) {
+fun loadPosts(tab: TabItem, posts: MutableList<Post>) {
     var url = "https://developerslife.ru/"
-
-    var loadingState by remember { mutableStateOf(true) }
-    var title by remember { mutableStateOf("") }
 
     if (tab.lastPostIndex > tab.posts.size - 1) {
         // We need to load 5 more posts
@@ -152,52 +166,79 @@ fun Post(tab: TabItem) {
             .url(url)
             .build()
 
-        AnimatedVisibility(visible = loadingState) {
-            CircularProgressIndicator()
-        }
-
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                // loadingState = !loadingState
-
                 e.printStackTrace()
             }
 
             override fun onResponse(call: Call, response: Response) {
-                // loadingState = !loadingState
-
                 response.use {
                     if (!response.isSuccessful) throw IOException("Unexpected code $response")
 
-                    for ((name, value) in response.headers) {
-                        println("$name: $value")
+                    val text = response.body!!.string()
+                    val json = JSONObject(text).getJSONArray("result").toString()
+                    val gson = Gson()
+                    val listType = object: TypeToken<List<Post>>(){}.type
+                    val postsJson = gson.fromJson<List<Post>>(json, listType)
+
+                    for (post in postsJson) {
+                        posts.add(post)
                     }
-                    // JSON = JSONObject(response.body!!.string()).toString()
-                    // println(JSON)
                 }
             }
         })
     }
+}
+
+@ExperimentalAnimationApi
+@Composable
+fun Post(tab: TabItem) {
+
+    val posts by remember { mutableStateOf(tab.posts) }
+
+    loadPosts(tab, posts)
 
     Card (
         shape = RoundedCornerShape(30.dp),
         elevation = 10.dp,
         modifier = Modifier
             .padding(all = 30.dp)
+            .padding(top = 50.dp)
+            .padding(bottom = 50.dp)
             .fillMaxWidth()
             .fillMaxHeight()
     ) {
         Column {
-            val contentUrl = ""
-            //loadImage(contentUrl)
+            var text = ""
+            if (posts.size != 0) {
+                loadImage(posts[tab.lastPostIndex].gifURL)
+                text = posts[tab.lastPostIndex].title
+            }
 
             Text(
+                color = Color.Gray,
+                fontSize = 18.sp,
                 modifier = Modifier
-                    .padding(all = 20.dp)
-                    .align(Alignment.CenterHorizontally),
-                text = "Content: $JSON",
+                    .padding(all = 20.dp),
+                text = text,
                 style = MaterialTheme.typography.body1
             )
+            Row (
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Button(
+                    modifier = Modifier.padding(all = 10.dp),
+                    onClick = { if (tab.lastPostIndex > 0) tab.lastPostIndex--},
+                ) {
+                    Text("Назад")
+                }
+                Button(modifier = Modifier.padding(all = 10.dp),
+                    onClick = { if (tab.lastPostIndex + 1 <= posts.size)  tab.lastPostIndex++ },
+                ) {
+                    Text("Вперед")
+                }
+            }
         }
     }
 }
