@@ -6,3 +6,6 @@
 - Okhttp
 - Glide
 - Accompanist
+
+## :sparkles: Демо
+![Demo](Demo.gif)
