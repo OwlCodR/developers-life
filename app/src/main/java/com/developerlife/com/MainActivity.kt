@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,9 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.developerlife.com.ui.theme.DeveloperLifeTheme
@@ -53,7 +55,7 @@ class MainActivity : ComponentActivity() {
 @ExperimentalAnimationApi
 @ExperimentalPagerApi
 @Composable
-fun MainScreen(tabsModel: TabsModel = viewModel()) {
+fun MainScreen(tabsModel: TabsModel = TabsModel()) {
     val tabsTitles = listOf(TabItem.Latest.title, TabItem.Top.title, TabItem.Hot.title)
     val tabsContents by tabsModel.tabs.observeAsState(remember { mutableStateListOf(TabItem.Latest, TabItem.Top, TabItem.Hot) })
     var currentPage by remember { mutableStateOf(0)}
@@ -78,7 +80,20 @@ fun MainScreen(tabsModel: TabsModel = viewModel()) {
                 }
             )
 
-            log("currentPage = $currentPage")
+            NavigationButtons(
+                onPrevPost = {
+                    val currentTab = tabsContents[currentPage]
+                    if (currentTab.currentPostIndex > 0) {
+                        currentTab.currentPostIndex--
+                        tabsModel.setTab(currentPage, currentTab)
+                    }
+                },
+                onNextPost = {
+                    val currentTab = tabsContents[currentPage]
+                    currentTab.currentPostIndex++
+                    tabsModel.setTab(currentPage, currentTab)
+                }
+            )
         }
     }
 }
@@ -90,33 +105,20 @@ fun TabContent (
     currentTabContent: TabItem,
     updateTabContent: (newTab: TabItem) -> Unit) {
 
-    var currentPost = Post(0, "", "")
     val currentPostIndex = currentTabContent.currentPostIndex
 
-    log("TabsContent() tab.lastShownPostIndex = $currentPostIndex")
+    log("TabsContent() updated")
 
     if (currentPostIndex < currentTabContent.posts.size) {
-        currentPost = currentTabContent.posts.elementAt(currentPostIndex)
+        PostScreen(currentTabContent.posts.elementAt(currentPostIndex))
     } else {
+        PostScreen(null)
+
         loadPost(currentTabContent) {
             currentTabContent.posts.add(it)
             updateTabContent(currentTabContent)
         }
     }
-
-    Post(currentPost)
-
-    NavigationButtons(onPrevPost = {
-        if (currentPostIndex > 0) {
-                currentTabContent.currentPostIndex--
-                updateTabContent(currentTabContent)
-            }
-        },
-        onNextPost = {
-            currentTabContent.currentPostIndex++
-            updateTabContent(currentTabContent)
-        }
-    )
 }
 
 fun loadPost(tab: TabItem, updatePost: (Post) -> Unit) {
@@ -157,8 +159,10 @@ fun loadPost(tab: TabItem, updatePost: (Post) -> Unit) {
                     log("json = $json")
                     log("PostsJson = $postsJson")
 
-                    if (postsJson.isNotEmpty())
-                        updatePost(postsJson[(tab.currentPostIndex + 1) % 5])
+                    if (postsJson.isNotEmpty()) {
+                        for (post in postsJson)
+                            updatePost(post)
+                    }
                     else
                         updatePost(Post(0, "", ""))
                 }
@@ -169,9 +173,7 @@ fun loadPost(tab: TabItem, updatePost: (Post) -> Unit) {
 
 @ExperimentalAnimationApi
 @Composable
-fun Post(post: Post) {
-    log("Making New Post '${post.id}'")
-
+fun PostScreen(post: Post?) {
     val cardHeight = 500.dp
 
     Card (
@@ -180,45 +182,51 @@ fun Post(post: Post) {
         modifier = Modifier.padding(30.dp, 30.dp, 30.dp, 0.dp).height(cardHeight)
     ) {
         Box {
-            GlideImage(
-                modifier = Modifier.fillMaxSize(),
-                imageModel = post.gifURL,
-                requestOptions = RequestOptions()
-                    .override(1024, 1024)
-                    .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop(),
-                loading = {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                },
-                failure = {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(30.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = "Image request failed")
-                    }
-                }
-            )
-
-            if (post.title.isNotEmpty()) {
-                Row (
-                    modifier = Modifier.fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black),
-                                cardHeight.value * 2F,
-                                Float.POSITIVE_INFINITY
-                            )
-                        ),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    Title(post.title)
+            if (post == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
             } else {
-                Row (verticalAlignment = Alignment.Bottom) {
-                    Title(post.title)
+                GlideImage(
+                    modifier = Modifier.fillMaxSize(),
+                    imageModel = post.gifURL,
+                    requestOptions = RequestOptions()
+                        .override(1024, 1024)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop(),
+                    failure = {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(30.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painterResource(R.drawable.post_not_found),
+                                contentDescription = "Post not found",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier.fillMaxSize().padding(30.dp)
+                            )
+                        }
+                    }
+                )
+
+                if (post.title.isNotEmpty()) {
+                    Row (
+                        modifier = Modifier.fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color.Black),
+                                    cardHeight.value * 2F,
+                                    Float.POSITIVE_INFINITY
+                                )
+                            ),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Title(post.title)
+                    }
+                } else {
+                    Row (verticalAlignment = Alignment.Bottom) {
+                        Title(post.title)
+                    }
                 }
             }
         }
