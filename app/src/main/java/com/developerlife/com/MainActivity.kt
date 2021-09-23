@@ -265,7 +265,6 @@ fun NavigationButtons(onPrevPost: () -> Unit, onNextPost: () -> Unit) {
 @ExperimentalPagerApi
 @Composable
 fun Tabs(page: Int, tabsTitles: List<String>, onTabSelected: (Int) -> Unit) {
-    log("Tabs updated!")
     TabRow(
         selectedTabIndex = page,
         backgroundColor = Color.White,
