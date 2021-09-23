@@ -1,61 +1,36 @@
 package com.developerlife.com
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.request.RequestOptions
 import com.developerlife.com.ui.theme.DeveloperLifeTheme
 import com.google.accompanist.pager.*
 import com.google.gson.Gson
 import com.skydoves.landscapist.glide.GlideImage
-import kotlinx.coroutines.launch
 import okhttp3.*
 import okio.IOException
 import org.json.JSONObject
 import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.NonDisposableHandle.parent
 
-
-class MainActivity : ComponentActivity() {
-    @ExperimentalAnimationApi
-    @ExperimentalPagerApi
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContent {
-            val tabs = listOf(TabItem.Latest, TabItem.Top, TabItem.Hot)
-            val pagerState = rememberPagerState(pageCount = tabs.size)
-
-            DeveloperLifeTheme {
-                Column {
-                    TopAppBar(
-                        title = { Text(text = "Developer Life") },
-                        backgroundColor = Color.White,
-                        contentColor = Color.Black,
-                        elevation = 2.dp
-                    )
-                    Tabs(tabs = tabs, pagerState = pagerState)
-                    TabsContent(tabs = tabs, pagerState = pagerState)
-                }
-            }
-        }
-    }
+fun log(msg: String) {
+    Log.d("MainActivity", msg)
 }
 
 /**
@@ -64,53 +39,46 @@ class MainActivity : ComponentActivity() {
  * https://developerslife.ru/random?json=true - GET random post
  */
 
+@ExperimentalPagerApi
 @ExperimentalAnimationApi
-@Preview(showSystemUi = true, showBackground = true)
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MainScreen()
+        }
+    }
+}
+
+@ExperimentalAnimationApi
 @ExperimentalPagerApi
 @Composable
-fun DefaultPreview() {
-    var tabs = listOf(TabItem.Latest, TabItem.Top, TabItem.Hot)
-    val pagerState = rememberPagerState(pageCount = tabs.size)
+fun MainScreen(tabsModel: TabsModel = viewModel()) {
+    val tabsTitles = listOf(TabItem.Latest.title, TabItem.Top.title, TabItem.Hot.title)
+    val tabsContents by tabsModel.tabs.observeAsState(remember { mutableStateListOf(TabItem.Latest, TabItem.Top, TabItem.Hot) })
+    var currentPage by remember { mutableStateOf(0)}
 
     DeveloperLifeTheme {
         Column {
-            TopAppBar(
-                title = { Text(text = "Developer Life") },
-                backgroundColor = Color.White,
-                contentColor = Color.Black,
-                elevation = 2.dp
-            )
-            Tabs(tabs = tabs, pagerState = pagerState )
-            TabsContent(tabs = tabs, pagerState = pagerState)
-        }
-    }
-}
+            TopBar()
 
-@ExperimentalPagerApi
-@Composable
-fun Tabs(tabs: List<TabItem>, pagerState: PagerState) {
-    val scope = rememberCoroutineScope()
+            Tabs(
+                tabsTitles = tabsTitles,
+                page = currentPage,
+                onTabSelected = {
+                    log("currentPage = $currentPage")
+                    currentPage = it
+                }
+            )
 
-    TabRow(
-        selectedTabIndex = pagerState.currentPage,
-        backgroundColor = Color.White,
-        contentColor = Color.Black,
-        indicator = {
-                tabPositions ->
-            TabRowDefaults.Indicator(
-                Modifier.pagerTabIndicatorOffset(pagerState, tabPositions)
+            TabContent(
+                currentTabContent = tabsContents[currentPage],
+                updateTabContent = { newTab ->
+                    tabsContents[currentPage] = newTab
+                }
             )
-        }) {
-        tabs.forEachIndexed { index, tab ->
-            Tab(
-                text = { Text(tab.title) },
-                selected = pagerState.currentPage == index,
-                onClick = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(index)
-                    }
-                },
-            )
+
+            log("currentPage = $currentPage")
         }
     }
 }
@@ -118,47 +86,50 @@ fun Tabs(tabs: List<TabItem>, pagerState: PagerState) {
 @ExperimentalAnimationApi
 @ExperimentalPagerApi
 @Composable
-fun TabsContent(tabs: List<TabItem>, pagerState: PagerState) {
-    HorizontalPager(state = pagerState) { page ->
-        Post(tabs[page])
+fun TabContent (
+    currentTabContent: TabItem,
+    updateTabContent: (newTab: TabItem) -> Unit) {
+
+    var currentPost = Post(0, "", "")
+    val currentPostIndex = currentTabContent.currentPostIndex
+
+    log("TabsContent() tab.lastShownPostIndex = $currentPostIndex")
+
+    if (currentPostIndex < currentTabContent.posts.size) {
+        currentPost = currentTabContent.posts.elementAt(currentPostIndex)
+    } else {
+        loadPost(currentTabContent) {
+            currentTabContent.posts.add(it)
+            updateTabContent(currentTabContent)
+        }
     }
-}
 
-@Composable
-fun loadImage(contentUrl: String) {
-    GlideImage(
-        imageModel = contentUrl,
-        requestOptions = RequestOptions()
-            .override(1024, 1024)
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .centerCrop(),
-        loading = {
-            Column (
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Box (
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    CircularProgressIndicator()
-                }
+    Post(currentPost)
 
+    NavigationButtons(onPrevPost = {
+        if (currentPostIndex > 0) {
+                currentTabContent.currentPostIndex--
+                updateTabContent(currentTabContent)
             }
         },
-        failure = {
-            Text(text = "Image request failed")
+        onNextPost = {
+            currentTabContent.currentPostIndex++
+            updateTabContent(currentTabContent)
         }
     )
 }
 
-fun loadPosts(tab: TabItem, posts: MutableList<Post>) {
-    var url = "https://developerslife.ru/"
+fun loadPost(tab: TabItem, updatePost: (Post) -> Unit) {
+    log("\nloadPost ${tab.title} " +
+            "tab.lastShownPostIndex -> ${tab.currentPostIndex} " +
+            "tab.posts.size -> ${tab.posts.size} ")
 
-    if (tab.lastPostIndex > tab.posts.size - 1) {
-        // We need to load 5 more posts
+    if (tab.currentPostIndex > tab.posts.size - 1) {
 
-        val page: Int = tab.posts.size / 5
-        url += "${tab.section}/${page + 1}?json=true"
+        var url = "https://developerslife.ru/"
+
+        val pageNumber: Int = tab.posts.size / 5
+        url += "${tab.section}/${pageNumber + 1}?json=true"
 
         val client = OkHttpClient()
 
@@ -178,12 +149,18 @@ fun loadPosts(tab: TabItem, posts: MutableList<Post>) {
                     val text = response.body!!.string()
                     val json = JSONObject(text).getJSONArray("result").toString()
                     val gson = Gson()
-                    val listType = object: TypeToken<List<Post>>(){}.type
+                    val listType = object : TypeToken<List<Post>>() {}.type
                     val postsJson = gson.fromJson<List<Post>>(json, listType)
 
-                    for (post in postsJson) {
-                        posts.add(post)
-                    }
+                    log("url = $url")
+                    log("text = $text")
+                    log("json = $json")
+                    log("PostsJson = $postsJson")
+
+                    if (postsJson.isNotEmpty())
+                        updatePost(postsJson[(tab.currentPostIndex + 1) % 5])
+                    else
+                        updatePost(Post(0, "", ""))
                 }
             }
         })
@@ -192,54 +169,116 @@ fun loadPosts(tab: TabItem, posts: MutableList<Post>) {
 
 @ExperimentalAnimationApi
 @Composable
-fun Post(tab: TabItem) {
+fun Post(post: Post) {
+    log("Making New Post '${post.id}'")
 
-    val posts by remember { mutableStateOf(tab.posts) }
-
-    loadPosts(tab, posts)
+    val cardHeight = 500.dp
 
     Card (
         shape = RoundedCornerShape(30.dp),
         elevation = 10.dp,
-        modifier = Modifier
-            .padding(all = 30.dp)
-            .padding(top = 50.dp)
-            .padding(bottom = 50.dp)
-            .fillMaxWidth()
-            .fillMaxHeight()
+        modifier = Modifier.padding(30.dp, 30.dp, 30.dp, 0.dp).height(cardHeight)
     ) {
-        Column {
-            var text = ""
-            if (posts.size != 0) {
-                loadImage(posts[tab.lastPostIndex].gifURL)
-                text = posts[tab.lastPostIndex].title
-            }
-
-            Text(
-                color = Color.Gray,
-                fontSize = 18.sp,
-                modifier = Modifier
-                    .padding(all = 20.dp),
-                text = text,
-                style = MaterialTheme.typography.body1
-            )
-            Row (
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Button(
-                    modifier = Modifier.padding(all = 10.dp),
-                    onClick = { if (tab.lastPostIndex > 0) tab.lastPostIndex--},
-                ) {
-                    Text("Назад")
+        Box {
+            GlideImage(
+                modifier = Modifier.fillMaxSize(),
+                imageModel = post.gifURL,
+                requestOptions = RequestOptions()
+                    .override(1024, 1024)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .centerCrop(),
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                },
+                failure = {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(30.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "Image request failed")
+                    }
                 }
-                Button(modifier = Modifier.padding(all = 10.dp),
-                    onClick = { if (tab.lastPostIndex + 1 <= posts.size)  tab.lastPostIndex++ },
+            )
+
+            if (post.title.isNotEmpty()) {
+                Row (
+                    modifier = Modifier.fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black),
+                                cardHeight.value * 2F,
+                                Float.POSITIVE_INFINITY
+                            )
+                        ),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    Text("Вперед")
+                    Title(post.title)
+                }
+            } else {
+                Row (verticalAlignment = Alignment.Bottom) {
+                    Title(post.title)
                 }
             }
         }
     }
 }
 
+@Composable
+fun Title(title: String) {
+    Text(
+        modifier = Modifier.padding(20.dp),
+        color = Color.White,
+        fontSize = 18.sp,
+        text = title
+    )
+}
+
+@Composable
+fun NavigationButtons(onPrevPost: () -> Unit, onNextPost: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(onClick = { onPrevPost() }) {
+            Text("Назад")
+        }
+
+        Spacer(Modifier.padding(10.dp))
+
+        Button(onClick = { onNextPost() }) {
+            Text("Вперед")
+        }
+    }
+}
+
+@ExperimentalPagerApi
+@Composable
+fun Tabs(page: Int, tabsTitles: List<String>, onTabSelected: (Int) -> Unit) {
+    log("Tabs updated!")
+    TabRow(
+        selectedTabIndex = page,
+        backgroundColor = Color.White,
+        contentColor = Color.Black
+    ) {
+        tabsTitles.forEachIndexed { index, title ->
+            Tab(
+                text = { Text(title) },
+                selected = page == index,
+                onClick = { onTabSelected(index) },
+            )
+        }
+    }
+}
+
+@Composable
+fun TopBar () {
+    TopAppBar(
+        title = { Text(text = "Developer Life") },
+        backgroundColor = Color.White,
+        contentColor = Color.Black,
+        elevation = 2.dp
+    )
+}
